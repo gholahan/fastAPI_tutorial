@@ -1,41 +1,27 @@
-from contextlib import asynccontextmanager
-from datetime import datetime
 from typing import Annotated
-from fastapi import Depends, FastAPI
-from sqlalchemy import create_engine
-from sqlmodel import SQLModel, Session, select
-from schema.campaign import Campaign
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel.ext.asyncio.session import AsyncSession
+from core.config import DATABASE_URL
 
 
-sqlite_file_name = "database.db"
-sqlite_url = f"sqlite:///{sqlite_file_name}"
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL not available")
 
-connect_args = {"check_same_thread": False}
-engine = create_engine(sqlite_url, connect_args=connect_args)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    future=True,
+    pool_pre_ping=True,
+    connect_args={
+        "statement_cache_size": 0
+    }
+)
 
 
-def create_db_and_tables():
-    SQLModel.metadata.create_all(engine)
-
-
-def get_session():
-    with Session(engine) as session:
+async def get_session():
+    async with AsyncSession(engine, expire_on_commit=False) as session:
         yield session
 
 
-SessionDep = Annotated[Session, Depends(get_session)]
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    create_db_and_tables()
-
-    with Session(engine) as session:
-        if not session.exec(select(Campaign)).first():
-            session.add_all([
-                Campaign(name="test", due_date=datetime.now()),
-                Campaign(name="test 2", due_date=datetime.now())
-            ])
-            session.commit()
-
-    yield
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
